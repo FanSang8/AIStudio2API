@@ -11,6 +11,7 @@ import (
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 	"github.com/Mag1cFall/AIStudio2API/internal/config"
+	"github.com/Mag1cFall/AIStudio2API/internal/r2storage"
 )
 
 // TestAdminConfig 验证凭据保存、密码保留与管理重启标记
@@ -20,6 +21,11 @@ func TestAdminConfig(t *testing.T) {
 	cfg.AdminAuthEnabled = true
 	cfg.AdminUsername = "operator"
 	cfg.AdminPassword = "test-password"
+	cfg.R2 = r2storage.Config{
+		Endpoint: "https://account.r2.cloudflarestorage.com", Bucket: "test-bucket",
+		AccessKeyID: "r2-test-key", SecretAccessKey: "r2-test-secret",
+		PublicBaseURL: "https://images.example.com",
+	}
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +44,9 @@ func TestAdminConfig(t *testing.T) {
 	if strings.Contains(string(raw), "test-password") || !value.AdminPasswordSet || !value.BuildNativeNonstream {
 		t.Fatalf("config=%s", raw)
 	}
+	if strings.Contains(string(raw), "r2-test") {
+		t.Fatal("R2 credentials leaked into the management response")
+	}
 	value.Proxy = "http://127.0.0.1:1234"
 	value.AutoStart = true
 	if _, err := admin.UpdateRuntimeConfig(ctx, value); err != nil {
@@ -49,6 +58,9 @@ func TestAdminConfig(t *testing.T) {
 	}
 	if !saved.AutoStart {
 		t.Fatal("auto_start was not saved")
+	}
+	if saved.R2 != cfg.R2 {
+		t.Fatal("saving management settings changed R2 configuration")
 	}
 	manager := &runtimeManager{activeManagement: cfg}
 	password := "new-test-password"

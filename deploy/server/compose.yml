@@ -1,0 +1,17 @@
+services:
+  aistudio2api:
+    image: aistudio2api-custom:local
+    container_name: aistudio2api
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    env_file:
+      - path: ./data/r2.env
+        required: false
+        format: raw
+    environment:
+      TZ: Asia/Shanghai
+      LISTEN_ADDR: 127.0.0.1:12048
+      PREVIEW_LISTEN_ADDR: 127.0.0.1:12050
+    volumes:
+      - ./data:/data

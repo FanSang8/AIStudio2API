@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -19,6 +20,30 @@ import (
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 )
+
+type ImageStorage interface {
+	Put(ctx context.Context, mimeType string, data []byte) (string, error)
+}
+
+// generatedImageURL always returns an HTTP(S) URL, never a data URI.
+func (s *server) generatedImageURL(r *http.Request, media aistudio.Blob) (string, error) {
+	if s.config.ImageStorage != nil {
+		return s.config.ImageStorage.Put(r.Context(), media.MIME, media.Data)
+	}
+	if s.media == nil || s.media.dir == "" {
+		return "", fmt.Errorf("image URL storage is not configured")
+	}
+	if err := s.media.save(mediaFileName(media), media.Data); err != nil {
+		return "", fmt.Errorf("save generated image: %w", err)
+	}
+	base := requestOrigin(r)
+	if s.config.MediaLinks != nil {
+		if _, configured := s.config.MediaLinks(); configured != "" {
+			base = configured
+		}
+	}
+	return strings.TrimRight(base, "/") + "/media/" + mediaFileName(media), nil
+}
 
 // mediaOutput 决定 Chat 与 Messages 正文引用生成媒体的方式
 type mediaOutput struct {

@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Mag1cFall/AIStudio2API/internal/r2storage"
 )
 
 const (
@@ -51,6 +53,12 @@ var configKeys = [...]string{
 	"WAA_BACKEND",
 	"MEDIA_OUTPUT",
 	"MEDIA_BASE_URL",
+	"R2_ENDPOINT",
+	"R2_BUCKET",
+	"R2_ACCESS_KEY_ID",
+	"R2_SECRET_ACCESS_KEY",
+	"R2_PUBLIC_BASE_URL",
+	"R2_KEY_PREFIX",
 	"AUTO_START",
 	"HIDE_DOCK_ICON",
 	"REQUEST_BODY_LOG",
@@ -153,6 +161,7 @@ type Config struct {
 	WAABackend             string
 	MediaOutput            string
 	MediaBaseURL           string
+	R2                     r2storage.Config
 	// Invalid 是加载时取值无效、改用默认值的配置项
 	Invalid []InvalidValue
 	// Environment 是取自进程环境变量、覆盖 .env 的配置键
@@ -209,7 +218,7 @@ type InvalidValue struct {
 }
 
 // secretKeys 是取值可能含凭据的配置键，无效时不记录原值
-var secretKeys = []string{"PROXY", "PROXY_API_KEY", "API_KEY_ACCOUNTS", "ADMIN_PASSWORD"}
+var secretKeys = []string{"PROXY", "PROXY_API_KEY", "API_KEY_ACCOUNTS", "ADMIN_PASSWORD", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}
 
 // invalidValue 返回无效配置项的记录，凭据键不带原值
 func invalidValue(key, value string, err error) InvalidValue {
@@ -262,6 +271,12 @@ var configSetters = map[string]func(*Config, string) error{
 	"WAA_BACKEND":              setWAABackend,
 	"MEDIA_OUTPUT":             textSetter(func(c *Config) *string { return &c.MediaOutput }, lowerTrim),
 	"MEDIA_BASE_URL":           textSetter(func(c *Config) *string { return &c.MediaBaseURL }, strings.TrimSpace),
+	"R2_ENDPOINT":              textSetter(func(c *Config) *string { return &c.R2.Endpoint }, strings.TrimSpace),
+	"R2_BUCKET":                textSetter(func(c *Config) *string { return &c.R2.Bucket }, strings.TrimSpace),
+	"R2_ACCESS_KEY_ID":         textSetter(func(c *Config) *string { return &c.R2.AccessKeyID }, strings.TrimSpace),
+	"R2_SECRET_ACCESS_KEY":     textSetter(func(c *Config) *string { return &c.R2.SecretAccessKey }, strings.TrimSpace),
+	"R2_PUBLIC_BASE_URL":       textSetter(func(c *Config) *string { return &c.R2.PublicBaseURL }, strings.TrimSpace),
+	"R2_KEY_PREFIX":            textSetter(func(c *Config) *string { return &c.R2.KeyPrefix }, strings.TrimSpace),
 	"UPSTREAM_CHANNELS": func(c *Config, value string) error {
 		c.UpstreamChannels = parseUpstreamChannels(value)
 		return nil
@@ -634,6 +649,12 @@ func (c Config) envValues() map[string]string {
 		"WAA_BACKEND":              c.WAABackend,
 		"MEDIA_OUTPUT":             c.MediaOutput,
 		"MEDIA_BASE_URL":           c.MediaBaseURL,
+		"R2_ENDPOINT":              c.R2.Endpoint,
+		"R2_BUCKET":                c.R2.Bucket,
+		"R2_ACCESS_KEY_ID":         c.R2.AccessKeyID,
+		"R2_SECRET_ACCESS_KEY":     c.R2.SecretAccessKey,
+		"R2_PUBLIC_BASE_URL":       c.R2.PublicBaseURL,
+		"R2_KEY_PREFIX":            c.R2.KeyPrefix,
 	}
 }
 
@@ -698,6 +719,9 @@ func appendEnv(path, key, value string) error {
 
 // Validate 校验配置值是否能用于服务启动
 func (c Config) Validate() error {
+	if err := c.R2.Validate(); err != nil {
+		return err
+	}
 	if c.AdminAuthEnabled && (strings.TrimSpace(c.AdminUsername) == "" || strings.TrimSpace(c.AdminPassword) == "") {
 		return fmt.Errorf("开启管理登录需要 ADMIN_USERNAME 与 ADMIN_PASSWORD")
 	}

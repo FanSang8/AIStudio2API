@@ -161,11 +161,16 @@ func (s *server) writeOpenAIImages(w http.ResponseWriter, r *http.Request, reque
 				}
 				return
 			}
-			encoded := base64.StdEncoding.EncodeToString(media.Data)
-			item := map[string]any{}
+			imageURL, err := s.generatedImageURL(r, media)
+			if err != nil {
+				if !streamed(err) {
+					writeOpenAIFailure(w, http.StatusBadGateway, "image_storage_error", err)
+				}
+				return
+			}
+			item := map[string]any{"url": imageURL}
 			if request.Stream {
 				item["type"] = event + ".completed"
-				item["b64_json"] = encoded
 				item["created_at"] = created
 				item["output_format"] = strings.TrimPrefix(format, "image/")
 				item["size"], item["quality"], item["background"] = fmt.Sprintf("%dx%d", size.X, size.Y), quality, "opaque"
@@ -173,10 +178,6 @@ func (s *server) writeOpenAIImages(w http.ResponseWriter, r *http.Request, reque
 				if identifier := cmp.Or(request.SafetyIdentifier, request.User); identifier != "" {
 					item["safety_identifier"] = identifier
 				}
-			} else if request.ResponseFormat == "url" {
-				item["url"] = "data:" + media.MIME + ";base64," + encoded
-			} else {
-				item["b64_json"] = encoded
 			}
 			if result.text.Len() > 0 {
 				item["revised_prompt"] = result.text.String()

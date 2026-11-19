@@ -463,7 +463,7 @@
    ],
    "type:image_generation.completed": [
     "type",
-    "b64_json",
+    "url",
     "usage"
    ],
    "object:video": [

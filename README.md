@@ -509,6 +509,24 @@ curl http://127.0.0.1:2048/v1/images/generations \
 
 `size` 为输出图片的宽高，例如 `2560x1440`，服务按最接近的宽高比与能覆盖该尺寸的分辨率生成后缩放为该尺寸；`size` 为 `auto` 或省略时，`quality` 的 `low`、`medium`、`high` 分别按 1K、2K、4K 生成。`output_format` 取 `png`（默认）、`jpeg` 或 `webp`。`/v1/images/edits` 与 Responses 的 `image_generation` 工具使用同样的字段，Gemini 原生接口使用 `imageConfig.aspectRatio` 与 `imageConfig.imageSize`。
 
+此分支的 `/v1/images/generations` 和 `/v1/images/edits` 强制返回真正的 HTTP(S) 图片链接，普通响应使用 `data[].url`，流式完成事件使用 `url`；即使请求 `response_format=b64_json` 也不返回 Base64。未配置 R2 时保存到 `runtime/media/` 并通过本服务 `/media/` 返回，受 1 GB 缓存上限约束。配置 R2 后上传最终编码的图片，并使用 `R2_PUBLIC_BASE_URL` 指定的自定义域名返回链接；上传失败会返回错误，不回退到 Base64 或本地文件。该改动仅作用于这两个 Images 接口，Gemini 原生与 Responses 工具的媒体协议保持不变。
+
+编辑接口除原有 multipart 文件上传外，也接受公网图片 URL，例如：
+
+```json
+{
+  "model": "<图片模型>",
+  "prompt": "保留主体，把背景改为海边",
+  "images": [
+    {"image_url": "https://你的图片域名/reference.png"}
+  ]
+}
+```
+
+以 `Content-Type: application/json` 提交到 `/v1/images/edits`。也支持 `image` 或 `image_url` 为 URL 字符串、`image` 为 URL 数组，multipart 的 `image`、`image[]`、`image_url` 字段可以填写 URL。`mask` 支持文件或 URL。服务器下载参考图时沿用公网地址、重定向与文件大小检查，URL 必须能由服务器直接读取。
+
+R2 使用 `R2_ENDPOINT`、`R2_BUCKET`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`R2_PUBLIC_BASE_URL` 和可选的 `R2_KEY_PREFIX` 配置；密钥只授予指定存储桶的对象读写权限。`R2_PUBLIC_BASE_URL` 是绑定到该桶的自定义 HTTPS 域名，不能填 S3 endpoint。设置后重启服务；管理页面保存其他设置时会保留这些字段，但不会返回 R2 密钥。`aistudio2api r2-check` 可验证上传和自定义域名下载，会留下一个很小的测试图片。
+
 ### 视频生成
 
 ```bash

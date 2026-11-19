@@ -2509,6 +2509,10 @@ File 为 `{name:"files/<id>",displayName,mimeType,sizeBytes,createTime,updateTim
 
 `POST /v1/images/edits` 接受 multipart 的 `image` 或 `image[]`（一个或多个文件）、`prompt`、`mask`，以及与图片生成相同的 `model`、`n`、`size`、`quality`、`output_format`、`output_compression`、`response_format`、`stream`、`safety_identifier`、`user`，响应格式也相同，流式事件类型为 `image_edit.completed`。输入图片按顺序作为参考图写在提示词之前；分段 Content-Type 缺失或为 `application/octet-stream` 时按内容识别，GIF 取首帧转为 PNG。`mask` 中完全透明的像素转为白色、其余为黑色，生成 PNG 遮罩，放在输入图片之后，并附说明“白色为编辑区域、黑色保持不变”。`background`、`input_fidelity`、`partial_images` 没有上游对应项，不影响请求。缺少图片或提示词、遮罩无法解码时返回 400。
 
+此分支扩展：编辑接口同时接受 JSON 的 `image`、`images` 或 `image_url`，值为 URL 字符串、URL 数组、`{"url":"..."}` / `{"image_url":"..."}` 对象或这些对象组成的数组。multipart 的 `image`、`image[]`、`image_url`、`image_url[]` 字符串字段也支持 URL，可与文件混用。JSON 的 `mask` 与 multipart 的 `mask` 字符串支持单个图片 URL。HTTP(S) 参考图使用同一个外部媒体下载器，包括私网和重定向检查；data URL 也接受，但图片内容必须能解码。
+
+此分支的 Images 生成和编辑响应强制使用 `url`，包括 `image_generation.completed` 与 `image_edit.completed`，不再输出 `b64_json` 或 data URL。配置 R2 时上传后返回自定义域名 URL；未配置时写入本地媒体目录并返回本服务 URL。R2 上传失败返回存储错误，流式已经开始时使用 SSE 错误事件，不产生成功图片事件。
+
 `POST /v1/audio/speech`：
 
 | 字段 | 取值与处理 |

@@ -462,8 +462,8 @@ function imagesPythonCode(input: CodeInput): string {
   const lines = Object.entries(args).map(([key, value]) => `    ${key}=${pyLiteral(value, 1)},`)
   if (files.length > 0)
     lines.unshift(`    image=[${files.map((file) => `open(${pyString(file)}, "rb")`).join(', ')}],`)
-  return `import base64
-import os
+  return `import os
+import urllib.request
 
 from openai import OpenAI
 
@@ -476,8 +476,7 @@ result = client.images.${method}(
 ${lines.join('\n')}
 )
 for index, image in enumerate(result.data):
-    with open(f"image_{index}.png", "wb") as file:
-        file.write(base64.b64decode(image.b64_json))
+    urllib.request.urlretrieve(image.url, f"image_{index}.png")
 `
 }
 
@@ -501,9 +500,11 @@ const client = new OpenAI({
 const result = await client.images.${method}({
 ${lines.join('\n')}
 });
-result.data?.forEach((image, index) => {
-  fs.writeFileSync(\`image_\${index}.png\`, Buffer.from(image.b64_json ?? '', 'base64'));
-});
+for (const [index, image] of (result.data ?? []).entries()) {
+  const response = await fetch(image.url!);
+  if (!response.ok) throw new Error(\`Image download failed: \${response.status}\`);
+  fs.writeFileSync(\`image_\${index}.png\`, Buffer.from(await response.arrayBuffer()));
+}
 `
 }
 

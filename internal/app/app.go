@@ -22,6 +22,7 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/egress"
 	"github.com/Mag1cFall/AIStudio2API/internal/i18n"
 	"github.com/Mag1cFall/AIStudio2API/internal/promptdb"
+	"github.com/Mag1cFall/AIStudio2API/internal/r2storage"
 	"github.com/Mag1cFall/AIStudio2API/internal/requestdb"
 	"github.com/Mag1cFall/AIStudio2API/internal/setup"
 	"github.com/Mag1cFall/AIStudio2API/internal/statedb"
@@ -79,6 +80,20 @@ func runCommand(args []string, logs *logOutput, executable string) (restart bool
 	ctx, cancel := context.WithCancel(signals)
 	defer cancel()
 
+	if len(args) == 1 && args[0] == "r2-check" {
+		storage, err := r2storage.New(cfg.R2)
+		if err != nil {
+			return false, err
+		}
+		if storage == nil {
+			return false, fmt.Errorf("R2 is not configured")
+		}
+		if err := storage.Check(ctx); err != nil {
+			return false, err
+		}
+		fmt.Fprintln(i18n.Stdout, "R2 upload and custom-domain download verified.")
+		return false, nil
+	}
 	if len(args) != 0 && args[0] == "setup" {
 		return false, setup.Run(ctx, cfg, args[1:])
 	}
@@ -232,6 +247,14 @@ const mediaLimit = 1 << 30
 
 // runServer 管理 HTTP 监听，就绪后以管理页面地址调用 onReady，运行到 ctx 结束或监听出错；started 表示监听曾经就绪
 func runServer(ctx context.Context, cfg config.Config, manager *runtimeManager, updater api.UpdateService, onReady func(address string)) (started bool, err error) {
+	var imageStorage api.ImageStorage
+	r2, err := r2storage.New(cfg.R2)
+	if err != nil {
+		return false, fmt.Errorf("R2 configuration: %w", err)
+	}
+	if r2 != nil {
+		imageStorage = r2
+	}
 	manager.requests.log("service", "INFO", "管理监听启动", "addr", cfg.ListenAddr)
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if errors.Is(err, portReserved) {
@@ -263,6 +286,7 @@ func runServer(ctx context.Context, cfg config.Config, manager *runtimeManager, 
 		AdminAuthEnabled: cfg.AdminAuthEnabled, AdminUsername: cfg.AdminUsername, AdminPassword: cfg.AdminPassword,
 		AdminSessionPath: filepath.Join("runtime", "admin-sessions.json"),
 		MediaDir:         filepath.Join("runtime", "media"), MediaLimit: mediaLimit, MediaLinks: manager.mediaLinks,
+		ImageStorage:  imageStorage,
 		ResponseModes: manager.responseModes, WaitLaunch: manager.WaitLaunch,
 		SearchSettings: manager.searchSettings, EgressProxy: manager.egressProxy, States: manager.states,
 	})

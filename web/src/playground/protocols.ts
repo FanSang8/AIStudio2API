@@ -1201,11 +1201,23 @@ function imagesDecoder(): Decoder {
     event: (value) => {
       const update: StreamUpdate = { parts: [] }
       const images =
-        typeof value.b64_json === 'string' ? [value] : ((value.data as unknown[]) ?? [])
+        typeof value.b64_json === 'string' || typeof value.url === 'string'
+          ? [value]
+          : ((value.data as unknown[]) ?? [])
       for (const item of images) {
         const image = record(item)
         const revised = stringOf(image.revised_prompt)
         if (revised !== '') update.parts.push({ text: revised })
+        const url = stringOf(image.url)
+        if (url.startsWith('https://') || url.startsWith('http://')) {
+          update.parts.push({
+            fileData: {
+              mimeType: `image/${stringOf(image.output_format) || stringOf(value.output_format) || 'png'}`,
+              fileUri: url,
+            },
+          })
+          continue
+        }
         const data = stringOf(image.b64_json)
         if (data !== '')
           update.parts.push({
@@ -1239,7 +1251,7 @@ function imagesCall(
     n: options.count,
     size: options.size,
     quality: options.quality,
-    response_format: 'b64_json',
+    response_format: 'url',
     stream,
   }
   if (images.length === 0) return { path: '/v1/images/generations', body: fields }

@@ -5,7 +5,10 @@ dist/
 web/node_modules/
 internal/webui/dist/
 .env
+**/r2.env
 *.exe
 aistudio2api
 spidermonkey/
 libwebp/
+.git/
+.codegraph/

@@ -1,0 +1,5 @@
+services:
+  aistudio2api:
+    environment:
+      LISTEN_ADDR: 127.0.0.1:12048
+      PREVIEW_LISTEN_ADDR: 127.0.0.1:12050

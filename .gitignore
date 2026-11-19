@@ -8,6 +8,7 @@
 
 # 本地配置与运行状态
 .env
+r2.env
 /auth/
 /runtime/
 /data/

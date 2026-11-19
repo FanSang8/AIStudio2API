@@ -31,6 +31,8 @@ type Config struct {
 	MediaLimit int64
 	// MediaLinks 返回媒体输出是否使用 URL 与设置的服务地址
 	MediaLinks func() (enabled bool, base string)
+	// ImageStorage optionally uploads generated images to external storage.
+	ImageStorage ImageStorage
 	// ResponseModes 返回非流式保活与假流式设置
 	ResponseModes func() ResponseModes
 	// SearchSettings 返回当前生成服务的搜索型号与全模型搜索设置

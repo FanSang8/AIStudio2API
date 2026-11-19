@@ -3,11 +3,13 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"slices"
@@ -23,8 +25,13 @@ const imageEditMultipartMemory = 32 << 20
 // imageEditMaskInstruction 是紧跟遮罩图片的说明，白色为编辑区域、黑色为保留区域
 const imageEditMaskInstruction = "The previous image is an edit mask for the first image: white pixels mark the area to edit and black pixels mark the area to keep. Apply the following edit only inside the white area and keep everything else unchanged."
 
-// handleOpenAIImageEdits 将 multipart 的 image 或 image[] 与 mask 作为参考图片，随提示词按 OpenAI Images 参数生成编辑结果
+// handleOpenAIImageEdits accepts uploaded files or public image URLs.
 func (s *server) handleOpenAIImageEdits(w http.ResponseWriter, r *http.Request) {
+	mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mediaType == "application/json" {
+		s.handleJSONImageEdits(w, r)
+		return
+	}
 	if err := r.ParseMultipartForm(imageEditMultipartMemory); err != nil {
 		if r.MultipartForm != nil {
 			_ = r.MultipartForm.RemoveAll()
@@ -69,6 +76,16 @@ func (s *server) handleOpenAIImageEdits(w http.ResponseWriter, r *http.Request) 
 		mimeType, data = normalizeImagePayload(mimeType, data)
 		inputs = append(inputs, aistudio.Part{InlineData: &aistudio.Blob{MIME: mimeType, Data: data}})
 	}
+	for _, field := range []string{"image", "image[]", "image_url", "image_url[]"} {
+		for _, reference := range r.MultipartForm.Value[field] {
+			part, err := readImageReference(r.Context(), reference)
+			if err != nil {
+				writeOpenAIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+			inputs = append(inputs, part)
+		}
+	}
 	if len(inputs) == 0 {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid_request", "image is required")
 		return
@@ -83,8 +100,139 @@ func (s *server) handleOpenAIImageEdits(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		inputs = append(inputs, aistudio.Part{InlineData: &aistudio.Blob{MIME: "image/png", Data: data}}, aistudio.Part{Text: imageEditMaskInstruction})
+	} else if reference := strings.TrimSpace(r.FormValue("mask")); reference != "" {
+		mask, err := readImageReference(r.Context(), reference)
+		if err == nil {
+			mask.InlineData.Data, err = imageEditMask(mask.InlineData.Data)
+			mask.InlineData.MIME = "image/png"
+		}
+		if err != nil {
+			writeOpenAIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		inputs = append(inputs, mask, aistudio.Part{Text: imageEditMaskInstruction})
 	}
 	s.writeOpenAIImages(w, r, request, inputs, "image_edit")
+}
+
+type imageEditJSONRequest struct {
+	openAIImageRequest
+	Image    json.RawMessage `json:"image"`
+	Images   json.RawMessage `json:"images"`
+	ImageURL json.RawMessage `json:"image_url"`
+	Mask     json.RawMessage `json:"mask"`
+}
+
+func (s *server) handleJSONImageEdits(w http.ResponseWriter, r *http.Request) {
+	var request imageEditJSONRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	var inputs []aistudio.Part
+	for _, raw := range []json.RawMessage{request.Image, request.Images, request.ImageURL} {
+		references, err := imageReferences(raw)
+		if err != nil {
+			writeOpenAIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		for _, reference := range references {
+			part, err := readImageReference(r.Context(), reference)
+			if err != nil {
+				writeOpenAIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+			inputs = append(inputs, part)
+		}
+	}
+	if len(inputs) == 0 {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request", "image is required")
+		return
+	}
+	masks, err := imageReferences(request.Mask)
+	if err == nil && len(masks) > 1 {
+		err = fmt.Errorf("mask must contain exactly one image")
+	}
+	if err == nil && len(masks) == 1 {
+		var part aistudio.Part
+		part, err = readImageReference(r.Context(), masks[0])
+		if err == nil {
+			part.InlineData.Data, err = imageEditMask(part.InlineData.Data)
+			part.InlineData.MIME = "image/png"
+			inputs = append(inputs, part, aistudio.Part{Text: imageEditMaskInstruction})
+		}
+	}
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	s.writeOpenAIImages(w, r, request.openAIImageRequest, inputs, "image_edit")
+}
+
+// imageReferences accepts a URL, URL array, or {image_url: "..."} / {url: "..."}.
+func imageReferences(raw json.RawMessage) ([]string, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil, nil
+	}
+	readOne := func(value json.RawMessage) (string, error) {
+		var text string
+		if json.Unmarshal(value, &text) == nil && strings.TrimSpace(text) != "" {
+			return text, nil
+		}
+		var object struct {
+			URL      string `json:"url"`
+			ImageURL string `json:"image_url"`
+		}
+		if json.Unmarshal(value, &object) == nil {
+			if object.ImageURL != "" {
+				return object.ImageURL, nil
+			}
+			if object.URL != "" {
+				return object.URL, nil
+			}
+		}
+		return "", fmt.Errorf("image must be a URL or an object containing image_url or url")
+	}
+	values := []json.RawMessage{raw}
+	if raw[0] == '[' {
+		if err := json.Unmarshal(raw, &values); err != nil {
+			return nil, fmt.Errorf("invalid image array")
+		}
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		reference, err := readOne(value)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, reference)
+	}
+	return result, nil
+}
+
+// readImageReference reuses the public-media downloader, including redirect and private-IP checks.
+func readImageReference(ctx context.Context, reference string) (aistudio.Part, error) {
+	reference = strings.TrimSpace(reference)
+	if !remoteMediaURL(reference) && !strings.HasPrefix(reference, "data:") {
+		return aistudio.Part{}, fmt.Errorf("image reference must be an HTTP(S) URL or a data URL")
+	}
+	part, err := fileOrInlinePart(reference, "")
+	if err != nil {
+		return aistudio.Part{}, err
+	}
+	contents := []aistudio.Content{{Parts: []aistudio.Part{part}}}
+	if err := inlineRemoteMedia(ctx, contents); err != nil {
+		return aistudio.Part{}, err
+	}
+	part = contents[0].Parts[0]
+	if part.InlineData == nil || !strings.HasPrefix(part.InlineData.MIME, "image/") {
+		return aistudio.Part{}, fmt.Errorf("image reference did not return an image")
+	}
+	if _, _, err := image.DecodeConfig(bytes.NewReader(part.InlineData.Data)); err != nil {
+		return aistudio.Part{}, fmt.Errorf("image reference contains invalid image data")
+	}
+	return part, nil
 }
 
 // readMultipartFile 读取 multipart 文件段的全部内容
