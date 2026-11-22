@@ -18,6 +18,7 @@ import (
 )
 
 type accessLogContextKey struct{}
+type accessLogRequestIDKey struct{}
 
 type accessLogMetadata struct {
 	mu              sync.Mutex
@@ -147,6 +148,17 @@ func (metadata *accessLogMetadata) id() string {
 	return metadata.requestID
 }
 
+// AccessLogRequestID 返回所属 HTTP 请求的日志 ID，多个生成子任务共用主请求 ID。
+func AccessLogRequestID(ctx context.Context) string {
+	if id, ok := ctx.Value(accessLogRequestIDKey{}).(string); ok && id != "" {
+		return id
+	}
+	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok {
+		return metadata.id()
+	}
+	return ""
+}
+
 // MarkAccessLogScheduled 记录请求从进入服务到取得本次执行账户的排队时间
 func MarkAccessLogScheduled(ctx context.Context) {
 	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok {
@@ -261,7 +273,11 @@ func SetAccessLogGenerationInput(ctx context.Context, request aistudio.GenerateR
 		}
 	}
 	metadata.mu.Lock()
-	metadata.requestID = strings.TrimSpace(request.ID)
+	if id, ok := ctx.Value(accessLogRequestIDKey{}).(string); ok && id != "" {
+		metadata.requestID = id
+	} else {
+		metadata.requestID = strings.TrimSpace(request.ID)
+	}
 	metadata.inputMessages = len(request.Contents)
 	metadata.inputTextChars = textChars
 	metadata.inputMedia = media

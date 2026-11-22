@@ -49,6 +49,8 @@ const (
 type trackedRequest struct {
 	request api.AdminRequest
 	cancel  context.CancelFunc
+	// logID 是所属 HTTP 请求的日志 ID，活动请求仍按各生成子任务 ID 管理。
+	logID string
 	// publishedDataAt 是最近一次发布给管理页的收到输出时刻
 	publishedDataAt time.Time
 }
@@ -66,13 +68,17 @@ func newRequestRegistry(ctx context.Context) *requestRegistry {
 	return registry
 }
 
-func (registry *requestRegistry) start(request aistudio.GenerateRequest, cancel context.CancelFunc) {
+func (registry *requestRegistry) start(ctx context.Context, request aistudio.GenerateRequest, cancel context.CancelFunc) {
 	tracked := trackedRequest{
 		request: api.AdminRequest{
 			ID: request.ID, Model: request.Model, AccountID: request.AccountID,
 			State: "queued", StartedAt: time.Now(),
 		},
 		cancel: cancel,
+		logID:  api.AccessLogRequestID(ctx),
+	}
+	if tracked.logID == "" {
+		tracked.logID = request.ID
 	}
 	registry.mu.Lock()
 	registry.active[request.ID] = tracked

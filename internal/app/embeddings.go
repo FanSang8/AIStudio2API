@@ -22,7 +22,7 @@ func (service *trackedService) Embed(ctx context.Context, request aistudio.Embed
 		return aistudio.EmbeddingResult{}, err
 	}
 	defer cancel()
-	service.requests.start(aistudio.GenerateRequest{ID: request.ID, Model: request.Model}, cancel)
+	service.requests.start(ctx, aistudio.GenerateRequest{ID: request.ID, Model: request.Model}, cancel)
 	request.CandidateAccountIDs, err = service.embeddingCandidates(requestCtx, modelID)
 	if err != nil {
 		api.SetAccessLogError(requestCtx, err)

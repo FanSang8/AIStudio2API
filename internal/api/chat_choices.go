@@ -24,6 +24,7 @@ type chatChoices struct {
 
 // startChatChoices 在各自 goroutine 中启动每个 choice 并立即读取其事件，非流式请求等待各 Generate 返回，流式请求等待首个就绪的 choice
 func (s *server) startChatChoices(ctx context.Context, request aistudio.GenerateRequest, count int, stream bool) *chatChoices {
+	ctx = context.WithValue(ctx, accessLogRequestIDKey{}, request.ID)
 	choices := &chatChoices{events: make([]<-chan aistudio.Event, count)}
 	choices.ctx, choices.cancel = context.WithCancel(ctx)
 	started := make(chan error, count)

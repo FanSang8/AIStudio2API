@@ -1910,11 +1910,11 @@ func (service *trackedService) Generate(ctx context.Context, request aistudio.Ge
 	}
 	if err != nil {
 		api.SetAccessLogError(ctx, err)
-		service.requests.start(request, func() {})
+		service.requests.start(ctx, request, func() {})
 		service.requests.finish(request.ID, "failed")
 		return nil, err
 	}
-	service.requests.start(request, cancel)
+	service.requests.start(ctx, request, cancel)
 	resourceID, err := service.pool.ResourceIDForContents(requestCtx, request.Contents)
 	if err != nil {
 		api.SetAccessLogError(requestCtx, err)

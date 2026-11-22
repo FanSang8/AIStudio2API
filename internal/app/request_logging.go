@@ -144,10 +144,14 @@ func (admin *runtimeAdmin) recordRequestLog(source, level, event, message string
 // logRequestProgress 将等待与恢复事件关联到所属请求，并带上登记时的模型与开始时间，attrs 依次为字段的英文标识与取值
 func (registry *requestRegistry) logRequestProgress(id, source, level, message string, attrs ...any) {
 	registry.mu.Lock()
-	request := registry.active[id].request
+	tracked, exists := registry.active[id]
 	registry.mu.Unlock()
+	if !exists {
+		return
+	}
+	request := tracked.request
 	registry.recordLog(api.AdminLog{Source: source, Level: level, Event: "request.progress", Message: message, Fields: logFields(attrs),
-		Request: &api.RequestLog{ID: id, State: "running", StartedAt: request.StartedAt, Model: request.Model}})
+		Request: &api.RequestLog{ID: tracked.logID, State: "running", StartedAt: request.StartedAt, Model: request.Model}})
 }
 
 // attemptFields 返回一次上游尝试失败的日志字段：模型、错误链中上游 RPC 错误的 HTTP 状态与协议错误码、Google 拒绝账户时的失败类型与原因
